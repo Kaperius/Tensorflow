@@ -5,42 +5,21 @@ import numpy as np
 tf.set_random_seed(777)  # for reproducibility
 
 # Predicting animal type based on various features
-
-xy = np.loadtxt('data-04-zoo.csv', delimiter=',', dtype=np.float32)
-x_data = xy[:, 0:-1]
-y_data = xy[:, [-1]]
+record_defaults = [[''], [''], [''], [''], [''], ['']]
+csv_file = tf.train.string_input_producer(['201704.csv'],name="filename_queue",shuffle=False)
+csv_reader = tf.TextLineReader()
+key, value = csv_reader.read(csv_file)
 
 learning_rate = 0.001
 training_epochs = 20
 batch_size = 170
 
-def read_my_file_format(filename_queue):
-  reader = tf.SomeReader()
-  key, record_string = reader.read(filename_queue)
-  example, label = tf.some_decoder(record_string)
-  processed_example = tf.some_processing(example)
-  return processed_example, label
-
-def input_pipeline(filenames, batch_size, num_epochs=None):
-  filename_queue = tf.train.string_input_producer(
-      filenames, num_epochs=num_epochs, shuffle=True)
-  example, label = read_my_file_format(filename_queue)
-  # min_after_dequeue defines how big a buffer we will randomly sample
-  #   from -- bigger means better shuffling but slower start up and more
-  #   memory used.
-  # capacity must be larger than min_after_dequeue and the amount larger
-  #   determines the maximum we will prefetch.  Recommendation:
-  #   min_after_dequeue + (num_threads + a small safety margin) * batch_size
-  min_after_dequeue = 10000
-  capacity = min_after_dequeue + 3 * batch_size
-  example_batch, label_batch = tf.train.shuffle_batch(
-      [example, label], batch_size=batch_size, capacity=capacity,
-      min_after_dequeue=min_after_dequeue)
-  return example_batch, label_batch
-
-train_x_batch, train_y_batch = input_pipeline('data-04-zoo.csv',batch_size=batch_size,num_epochs=training_epochs)
+f1, f2, f3, f4, f5, label = tf.decode_csv(value, record_defaults=record_defaults)
+features = tf.stack([f1,f2,f3,f4,f5])
 
 
+train_x_batch, train_y_batch = tf.train.shuffle_batch([features, label], batch_size, 5000, 100, 4)
+print(train_x_batch.shape, train_y_batch .shape)
 #print(x_data.shape, y_data.shape)
 
 nb_classes = 4  # 0 ~ 3
@@ -115,16 +94,24 @@ accuracy_summ = tf.summary.scalar("accuracy", accuracy)
 # Launch graph
 with tf.Session() as sess:
     # tensorboard --logdir=./logs/xor_logs
+    coord = tf.train.Coordinator()
+    threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+
     merged_summary = tf.summary.merge_all()
     writer = tf.summary.FileWriter("./logs/ubitus")
     writer.add_graph(sess.graph)  # Show the graph
 
+    total_batch=int(17000000/batch_size)
+
     sess.run(tf.global_variables_initializer())
 
-    #saver.restore(sess, "/tmp/model3.ckpt")
+    saver.restore(sess, "/tmp/model3.ckpt")
 
-    for step in range(200000):
-        feed_dict = {X: train_x_batch, Y: train_y_batch, keep_prob: 0.7}
+    for step in range(total_batch):
+        batch_x, batch_y = sess.run([train_x_batch, train_y_batch])
+        batch_y = batch_y.reshape(batch_size, 1)
+
+        feed_dict = {X: batch_x, Y: batch_y, keep_prob: 0.7}
         summary, _ = sess.run([merged_summary, optimizer], feed_dict=feed_dict)
         writer.add_summary(summary, global_step=step)
 
@@ -134,6 +121,9 @@ with tf.Session() as sess:
             print("Step: {:5}\tLoss: {:.3f}\tAcc: {:.2%}".format(
                 step, loss, acc))
             save_path = saver.save(sess, "/tmp/model3.ckpt")
+
+    coord.request_stop()
+    coord.join(threads)
 '''
     pred = sess.run(prediction, feed_dict={X: [[7,4,0.1303,0.00,0.01],[17,4,0.1304,0.00,0.05]]})
 
